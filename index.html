@@ -9,10 +9,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
     <!-- Chart.js para gráficas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK v9 Compat (compatible con tu código existente) -->
     <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-analytics-compat.js"></script>
     <style>
         * {
             margin: 0;
@@ -1320,7 +1321,7 @@
                     </button>
                     <button class="tab" onclick="setTab('analytics', this)" data-tab="analytics">
                         <span>📊</span> Analytics
-                        <span style="font-size: 0.7rem; margin-left: 0.25rem;">🔒</span>
+                        <span style="font-size: 0.7rem; margin-left: 0.25rem;">🔑</span>
                     </button>
                     <button class="tab" onclick="setTab('herramientas', this)" data-tab="herramientas">
                         <span>⚙️</span> Herramientas
@@ -1343,7 +1344,7 @@
                 </div>
                 <div class="stat-card animate-in" style="animation-delay: 0.1s;">
                     <div class="stat-icon-wrapper">
-                        <span class="stat-icon">💖</span>
+                        <span class="stat-icon">👖</span>
                     </div>
                     <div class="stat-content">
                         <div class="stat-label">Unidades Totales</div>
@@ -1606,7 +1607,7 @@
                             <h4 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--text);">📅 Cierre Mensual</h4>
                             <div style="background: #f0f9ff; padding: 1rem; border-radius: var(--radius); border: 2px solid #3b82f6;">
                                 <p style="font-size: 0.875rem; margin-bottom: 1rem;">
-                                    <strong>📒 Sistema de Cierre Mensual</strong><br>
+                                    <strong>🔒 Sistema de Cierre Mensual</strong><br>
                                     Archiva movimientos del mes y optimiza el rendimiento.
                                 </p>
                                 <button class="btn btn-warning" onclick="openMonthlyClose()">
@@ -1967,21 +1968,22 @@ Ejemplo: 123456,Pantalón Azul,Añil,32,Clásico..."></textarea>
         };
 
         // ==================== FIREBASE CONFIGURATION ====================
-        // Configuración de tu proyecto Firebase (Sample Firebase AI App)
+        // TU CONFIGURACIÓN DE FIREBASE ACTUALIZADA
         const firebaseConfig = {
-            apiKey: "AIzaSyCCZ85u_96c87h6OGEkemAX3U3NWjXS9OQ",
-            authDomain: "inventario-john-silver-4.firebaseapp.com",
-            databaseURL: "https://inventario-john-silver-4-default-rtdb.firebaseio.com",
-            projectId: "inventario-john-silver-4",
-            storageBucket: "inventario-john-silver-4.firebasestorage.app",
-            messagingSenderId: "369226798899",
-            appId: "1:369226798899:web:e1c303e01293c069eb5046",
-            measurementId: "G-LY1BQ7EVHR"
+            apiKey: "AIzaSyCjF2wFoedIJZOvQXH2L8TUdlwof3bbHaY",
+            authDomain: "inventario5js.firebaseapp.com",
+            databaseURL: "https://inventario5js-default-rtdb.firebaseio.com", // IMPORTANTE: Agregar URL de Realtime Database
+            projectId: "inventario5js",
+            storageBucket: "inventario5js.firebasestorage.app",
+            messagingSenderId: "1038504692737",
+            appId: "1:1038504692737:web:e90147dbf8250970514400",
+            measurementId: "G-3D88KPTTMJ"
         };
 
         // Variables de Firebase
         let firebaseApp = null;
         let database = null;
+        let analytics = null;
         let isOnline = false;
         let userId = null;
         let syncEnabled = false;
@@ -1993,6 +1995,7 @@ Ejemplo: 123456,Pantalón Azul,Añil,32,Clásico..."></textarea>
                 try {
                     firebaseApp = firebase.initializeApp(firebaseConfig);
                     database = firebase.database();
+                    analytics = firebase.analytics();
                     
                     // Detectar estado de conexión
                     const connectedRef = firebase.database().ref('.info/connected');
@@ -2722,7 +2725,7 @@ Ejemplo: 123456,Pantalón Azul,Añil,32,Clásico..."></textarea>
             const event = new Event('submit', { bubbles: true, cancelable: true });
             event.preventDefault();
             
-            // Procesar el escaneo con un pequeño delay para asegurar que todo está listo
+            // Procesar el escaneo con un pequeño delay para asegurar que todo esté listo
             setTimeout(() => {
                 processScan(event);
                 
