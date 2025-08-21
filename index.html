@@ -2074,6 +2074,7 @@
         let isOnline = false;
         let syncInProgress = false;
         let lastSyncTime = 0;
+        let preventSync = false; // Flag para prevenir sincronización automática durante guardado
 
         // ==================== ESTADO DE LA APLICACIÓN ====================
         let state = {
@@ -2094,6 +2095,23 @@
             editingProduct: null,
             scannerActive: false
         };
+        
+        // Intentar cargar estado desde localStorage al inicio
+        try {
+            const savedState = localStorage.getItem('inventory_state');
+            if (savedState) {
+                const parsedState = JSON.parse(savedState);
+                if (parsedState.products) {
+                    state = {
+                        ...state,
+                        ...parsedState
+                    };
+                    console.log('📦 Estado cargado desde localStorage');
+                }
+            }
+        } catch (e) {
+            console.log('⚠️ No se pudo cargar estado desde localStorage:', e);
+        }
 
         // ==================== SISTEMA DE AUTENTICACIÓN ====================
         const AuthSystem = {
@@ -2107,11 +2125,24 @@
                     auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
                     
                     // Escuchar cambios de autenticación
-                    auth.onAuthStateChanged((user) => {
+                    auth.onAuthStateChanged(async (user) => {
                         if (user) {
                             currentUser = user;
                             console.log('✅ Usuario autenticado:', user.email);
-                            this.onLoginSuccess(user);
+                            
+                            // Verificar si es un login nuevo o sesión persistente
+                            const lastLoginTime = localStorage.getItem('last_login_time');
+                            const currentTime = Date.now();
+                            
+                            // Si no hay lastLoginTime o han pasado más de 5 segundos, es sesión persistente
+                            const isNewLogin = lastLoginTime && (currentTime - parseInt(lastLoginTime) < 5000);
+                            
+                            if (isNewLogin) {
+                                // Es un login nuevo, guardar timestamp
+                                localStorage.setItem('last_login_time', currentTime.toString());
+                            }
+                            
+                            await this.onLoginSuccess(user, isNewLogin);
                         } else {
                             currentUser = null;
                             console.log('❌ Usuario no autenticado');
@@ -2138,37 +2169,53 @@
                 document.getElementById('main-app').style.display = 'none';
             },
             
-            async onLoginSuccess(user) {
+            async onLoginSuccess(user, isNewLogin = false) {
                 try {
                     // Mostrar estado de sincronización
                     showSyncStatus('syncing');
                     
-                    // 1. LIMPIAR TODO EL LOCALSTORAGE (CRÍTICO)
-                    console.log('🧹 Limpiando localStorage...');
-                    localStorage.clear();
+                    // SOLO limpiar si es un login nuevo, NO en refresh
+                    if (isNewLogin) {
+                        console.log('🆕 Nuevo login detectado - limpiando datos locales...');
+                        // 1. LIMPIAR TODO EL LOCALSTORAGE
+                        localStorage.clear();
+                        
+                        // 2. Limpiar estado en memoria
+                        state = {
+                            products: [],
+                            movements: [],
+                            operator: '',
+                            platforms: [],
+                            adminPassword: '',
+                            brandLogo: '',
+                            valuesUnlocked: false,
+                            currentTab: 'entradas',
+                            searchQuery: '',
+                            colorFilter: 'all',
+                            modelFilter: 'all',
+                            barcodeFilter: 'all',
+                            lowStockFilter: false,
+                            pendingGuide: '',
+                            editingProduct: null,
+                            scannerActive: false
+                        };
+                    } else {
+                        console.log('🔄 Sesión existente detectada - manteniendo datos locales...');
+                        // Cargar estado desde localStorage si existe
+                        const savedState = localStorage.getItem('inventory_state');
+                        if (savedState) {
+                            const parsedState = JSON.parse(savedState);
+                            state.products = parsedState.products || [];
+                            state.movements = parsedState.movements || [];
+                            state.operator = parsedState.operator || '';
+                            state.platforms = parsedState.platforms || [];
+                            state.adminPassword = parsedState.adminPassword || '';
+                            state.brandLogo = parsedState.brandLogo || '';
+                        }
+                    }
                     
-                    // 2. Limpiar estado en memoria
-                    state = {
-                        products: [],
-                        movements: [],
-                        operator: '',
-                        platforms: [],
-                        adminPassword: '',
-                        brandLogo: '',
-                        valuesUnlocked: false,
-                        currentTab: 'entradas',
-                        searchQuery: '',
-                        colorFilter: 'all',
-                        modelFilter: 'all',
-                        barcodeFilter: 'all',
-                        lowStockFilter: false,
-                        pendingGuide: '',
-                        editingProduct: null,
-                        scannerActive: false
-                    };
-                    
-                    // 3. DESCARGAR TODO DESDE FIREBASE
-                    console.log('☁️ Descargando datos desde Firebase...');
+                    // 3. DESCARGAR Y SINCRONIZAR CON FIREBASE
+                    console.log('☁️ Sincronizando con Firebase...');
                     await SyncSystem.downloadFromFirebase();
                     
                     // 4. Mostrar la aplicación
@@ -2176,6 +2223,11 @@
                     document.getElementById('main-app').classList.add('authenticated');
                     document.getElementById('main-app').style.display = 'block';
                     document.getElementById('current-user-email').textContent = user.email;
+                    
+                    // Actualizar campo de operador si existe
+                    if (document.getElementById('operatorInput')) {
+                        document.getElementById('operatorInput').value = state.operator || '';
+                    }
                     
                     // 5. Actualizar UI
                     updateStats();
@@ -2209,7 +2261,10 @@
                     const snapshot = await userRef.once('value');
                     const firebaseData = snapshot.val();
                     
-                    if (firebaseData) {
+                    if (firebaseData && firebaseData.products) {
+                        // Solo reemplazar si Firebase tiene datos válidos
+                        console.log('✅ Datos encontrados en Firebase, actualizando...');
+                        
                         // REEMPLAZAR todo el estado con datos de Firebase
                         state.products = firebaseData.products || [];
                         state.movements = firebaseData.movements || [];
@@ -2226,17 +2281,26 @@
                         }
                         
                         // Actualizar operador
-                        document.getElementById('operatorInput').value = state.operator;
+                        if (document.getElementById('operatorInput')) {
+                            document.getElementById('operatorInput').value = state.operator;
+                        }
                         
                         console.log('✅ Datos descargados de Firebase:', {
                             products: state.products.length,
                             movements: state.movements.length
                         });
-                    } else {
-                        console.log('📭 No hay datos en Firebase para este usuario');
+                    } else if (!firebaseData || !firebaseData.products) {
+                        // Si Firebase está vacío, mantener datos locales y subirlos
+                        console.log('⚠️ Firebase vacío, manteniendo datos locales...');
+                        
+                        // Si tenemos datos locales, subirlos a Firebase
+                        if (state.products.length > 0 || state.movements.length > 0) {
+                            console.log('📤 Subiendo datos locales a Firebase...');
+                            await this.uploadToFirebase();
+                        }
                     }
                     
-                    // Guardar en localStorage como respaldo
+                    // Siempre guardar en localStorage como respaldo
                     this.saveToLocalStorage();
                     
                 } catch (error) {
@@ -2293,13 +2357,33 @@
                 
                 const userRef = database.ref(`users/${currentUser.uid}`);
                 
+                // Primera sincronización: solo escuchar, no sobrescribir
+                let isFirstSync = true;
+                
                 // Escuchar cambios en Firebase
                 userRef.on('value', (snapshot) => {
+                    // Si es la primera sincronización, solo observar
+                    if (isFirstSync) {
+                        isFirstSync = false;
+                        console.log('🔍 Primera sincronización - observando estado de Firebase');
+                        return;
+                    }
+                    
+                    // Si preventSync está activo, no sincronizar
+                    if (preventSync) {
+                        console.log('⏸️ Sincronización pausada temporalmente');
+                        return;
+                    }
+                    
                     const firebaseData = snapshot.val();
                     if (!firebaseData) return;
                     
-                    // Solo actualizar si los datos de Firebase son más recientes
-                    if (firebaseData.lastUpdate && firebaseData.lastUpdate > lastSyncTime) {
+                    // Solo actualizar si los datos de Firebase son más recientes Y no están vacíos
+                    if (firebaseData.lastUpdate && 
+                        firebaseData.lastUpdate > lastSyncTime && 
+                        firebaseData.products && 
+                        firebaseData.products.length >= 0) {
+                        
                         console.log('📥 Actualizando desde Firebase...');
                         
                         // REEMPLAZAR estado con datos de Firebase
@@ -2376,13 +2460,22 @@
         async function handleLogin(event) {
             event.preventDefault();
             
-            const email = document.getElementById('login-email').value;
+            const email = document.getElementById('login-email').value.toLowerCase();
             const password = document.getElementById('login-password').value;
             const rememberMe = document.getElementById('remember-me').checked;
             
             const submitBtn = document.getElementById('login-submit-btn');
             const errorDiv = document.getElementById('login-error');
             const successDiv = document.getElementById('login-success');
+            
+            // VERIFICAR SI EL EMAIL ESTÁ AUTORIZADO
+            if (!AUTHORIZED_EMAILS.includes(email)) {
+                errorDiv.textContent = '❌ Acceso denegado. Email no autorizado.';
+                errorDiv.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Iniciar Sesión';
+                return;
+            }
             
             submitBtn.disabled = true;
             submitBtn.textContent = 'Iniciando sesión...';
@@ -2400,10 +2493,13 @@
                 // Iniciar sesión
                 const userCredential = await auth.signInWithEmailAndPassword(email, password);
                 
+                // Marcar como login nuevo
+                localStorage.setItem('last_login_time', Date.now().toString());
+                
                 successDiv.textContent = '✅ Iniciando sesión...';
                 successDiv.style.display = 'block';
                 
-                // AuthSystem.onLoginSuccess se ejecutará automáticamente
+                // onAuthStateChanged manejará el resto
                 
             } catch (error) {
                 console.error('Error en login:', error);
@@ -2438,10 +2534,25 @@
             }
         }
 
+        // ==================== CONFIGURACIÓN DE ACCESO ====================
+        // OPCIÓN 1: Lista de emails autorizados (descomenta y modifica)
+        const AUTHORIZED_EMAILS = [
+            'johnsilverjeanselektra@gmail.com',
+            'admin@johnsilver.com',
+            'inventario@johnsilver.com'
+            // Agrega aquí los emails autorizados
+        ];
+        
+        // OPCIÓN 2: Código de invitación (descomenta para usar)
+        // const INVITATION_CODE = 'JOHNSILVER2024';
+        
+        // OPCIÓN 3: Dominio de email específico (descomenta para usar)
+        // const ALLOWED_DOMAIN = '@johnsilver.com';
+
         async function handleRegister(event) {
             event.preventDefault();
             
-            const email = document.getElementById('register-email').value;
+            const email = document.getElementById('register-email').value.toLowerCase();
             const password = document.getElementById('register-password').value;
             const confirmPassword = document.getElementById('register-password-confirm').value;
             
@@ -2451,6 +2562,13 @@
             
             errorDiv.style.display = 'none';
             successDiv.style.display = 'none';
+            
+            // VERIFICAR SI EL EMAIL ESTÁ AUTORIZADO
+            if (!AUTHORIZED_EMAILS.includes(email)) {
+                errorDiv.textContent = '❌ Este email no está autorizado para registrarse. Contacta al administrador.';
+                errorDiv.style.display = 'block';
+                return;
+            }
             
             // Validar contraseñas
             if (password !== confirmPassword) {
@@ -2472,23 +2590,16 @@
                 // Crear cuenta
                 const userCredential = await auth.createUserWithEmailAndPassword(email, password);
                 
-                // Inicializar espacio en Firebase para el nuevo usuario
-                const userRef = database.ref(`users/${userCredential.user.uid}`);
-                await userRef.set({
-                    email: email,
-                    createdAt: Date.now(),
-                    products: [],
-                    movements: [],
-                    platforms: [],
-                    operator: '',
-                    adminPassword: '',
-                    brandLogo: ''
-                });
+                // Marcar como login nuevo
+                localStorage.setItem('last_login_time', Date.now().toString());
+                
+                // NO inicializar con datos vacíos, dejar que el usuario los cree
+                console.log('✅ Usuario creado:', userCredential.user.uid);
                 
                 successDiv.textContent = '✅ Cuenta creada exitosamente. Iniciando sesión...';
                 successDiv.style.display = 'block';
                 
-                // AuthSystem.onLoginSuccess se ejecutará automáticamente
+                // onAuthStateChanged manejará el resto
                 
             } catch (error) {
                 console.error('Error en registro:', error);
@@ -2529,8 +2640,7 @@
                     // Cerrar sesión
                     await auth.signOut();
                     
-                    // Limpiar localStorage
-                    localStorage.clear();
+                    // NO limpiar localStorage aquí para mantener respaldo
                     
                     notify('👋 Sesión cerrada correctamente', 'info');
                     
@@ -2585,9 +2695,11 @@
                 return;
             }
             
-            if (confirm('¿Descargar todos los datos desde la nube? Esto reemplazará los datos locales.')) {
+            if (confirm('¿Sincronizar con la nube? Esto actualizará los datos locales con los de Firebase.')) {
                 try {
                     showSyncStatus('syncing');
+                    
+                    // NO limpiar localStorage, solo sincronizar
                     await SyncSystem.downloadFromFirebase();
                     
                     // Actualizar UI
@@ -2613,12 +2725,25 @@
         function saveState() {
             clearTimeout(saveTimeout);
             saveTimeout = setTimeout(() => {
+                // Pausar sincronización temporalmente mientras guardamos
+                preventSync = true;
+                
                 // Guardar en localStorage
                 SyncSystem.saveToLocalStorage();
                 
                 // Sincronizar con Firebase si hay conexión
                 if (currentUser && isOnline && !syncInProgress) {
-                    SyncSystem.uploadToFirebase();
+                    SyncSystem.uploadToFirebase().then(() => {
+                        // Reanudar sincronización después de guardar
+                        setTimeout(() => {
+                            preventSync = false;
+                        }, 1000);
+                    });
+                } else {
+                    // Reanudar sincronización
+                    setTimeout(() => {
+                        preventSync = false;
+                    }, 1000);
                 }
             }, 500);
         }
